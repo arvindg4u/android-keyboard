@@ -94,4 +94,26 @@ class LiveProtocolTest {
         assertTrue(LiveProtocol.mapHttpError(429, "").startsWith("Rate limited"))
         assertTrue(LiveProtocol.mapHttpError(500, "").startsWith("Server error"))
     }
+
+    @Test
+    fun `short to pcm16 matches float path bytes`() {
+        // 0, max, min, arbitrary: LE bytes must equal float-converted output.
+        val shorts = shortArrayOf(0, 32767, -32768, 1000, -1000)
+        val floats = floatArrayOf(0f, 1f, -1f, 1000f / 32767f, -1000f / 32767f)
+        assertArrayEquals(
+            LiveProtocol.floatSamplesToPcm16(floats),
+            LiveProtocol.shortSamplesToPcm16(shorts, shorts.size),
+        )
+    }
+
+    @Test
+    fun `short to pcm16 respects length prefix`() {
+        val shorts = shortArrayOf(1, 2, 3, 4)
+        assertArrayEquals(
+            LiveProtocol.shortSamplesToPcm16(shorts, 2),
+            LiveProtocol.shortSamplesToPcm16(shorts.copyOfRange(0, 2), 2),
+        )
+        assertEquals(0, LiveProtocol.shortSamplesToPcm16(shorts, 0).size)
+        assertEquals(0, LiveProtocol.shortSamplesToPcm16(shorts, -5).size)
+    }
 }

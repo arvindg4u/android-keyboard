@@ -120,7 +120,7 @@ class VoiceInputPersistentState(val manager: KeyboardManagerForAction) : Persist
 
 private class VoiceInputActionWindow(
     val manager: KeyboardManagerForAction, val state: VoiceInputPersistentState,
-    val model: ModelLoader, val locales: List<Locale>
+    val model: ModelLoader?, val locales: List<Locale>
 ) : ActionWindow(), RecognizerViewListener {
     val context = manager.getContext()
 
@@ -136,7 +136,10 @@ private class VoiceInputActionWindow(
         val usePersonalDict = context.getSetting(USE_PERSONAL_DICT)
         val animateBubble = context.getSetting(ANIMATE_BUBBLE)
 
-        val primaryModel = model
+        // Gemini streaming needs no local model: fall back to the builtin EN
+        // loader as a config placeholder (never loaded on the stream path).
+        // AudioRecognizer skips verifyModelsExist + preload for StreamRunners.
+        val primaryModel = model ?: org.futo.voiceinput.shared.BUILTIN_ENGLISH_MODEL
         val languageSpecificModels = mutableMapOf<Language, ModelLoader>()
         val allowedLanguages = locales.mapNotNull { getLanguageFromWhisperString(it.language) }.toSet()
         val glossary = if(usePersonalDict) {
@@ -344,7 +347,17 @@ val VoiceInputAction = Action(icon = R.drawable.mic_fill,
 
         val model = ResourceHelper.tryFindingVoiceInputModelForLocale(manager.getContext(), locales.firstOrNull() ?: Locale.ROOT)
 
-        if(model == null) {
+        // Gemini Live streams to the cloud and needs no on-device model:
+        // open the window even when no Whisper file exists. Whisper keeps
+        // the old gate (model required).
+        val context = manager.getContext()
+        val geminiReady = try {
+            val engine = context.getSetting(VOICE_ENGINE)
+            val gemini = GeminiSettings(context)
+            engine == "gemini" && gemini.hasKey()
+        } catch (_: Exception) { false }
+
+        if(model == null && !geminiReady) {
             VoiceInputNoModelWindow(locales.firstOrNull() ?: Locale.ROOT)
         } else {
             VoiceInputActionWindow(

@@ -37,6 +37,9 @@ import org.futo.voiceinput.shared.types.Language
 import org.futo.voiceinput.shared.types.MagnitudeState
 import org.futo.voiceinput.shared.types.ModelInferenceCallback
 import org.futo.voiceinput.shared.types.ModelLoader
+import org.futo.voiceinput.shared.gemini.LiveProtocol
+import org.futo.voiceinput.shared.gemini.LiveStreamingSession
+import org.futo.voiceinput.shared.gemini.StreamRunner
 import org.futo.voiceinput.shared.gemini.TranscribeException
 import org.futo.voiceinput.shared.gemini.TranscriptionRunner
 import org.futo.voiceinput.shared.ui.MicrophoneDeviceState
@@ -111,6 +114,15 @@ class AudioRecognizer(
     private var recorderJob: Job? = null
     private var modelJob: Job? = null
     private var loadModelJob: Job? = null
+
+    // TRUE STREAMING state (Gemini Live only; null on the Whisper path).
+    // Opened at mic-tap, fed live PCM from the recorder loop, finalized on
+    // Stop via finish + awaitFinal. Guarded by streamLock; session callbacks
+    // run on socket threads and must never touch views directly.
+    private val streamLock = Any()
+    private var streamSession: LiveStreamingSession? = null
+    private var streamFailed = java.util.concurrent.atomic.AtomicBoolean(false)
+    private var streamDone = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private var focusRequest: AudioFocusRequest? = null
 
@@ -194,6 +206,11 @@ class AudioRecognizer(
 
     @Throws(ModelDoesNotExistException::class)
     private fun verifyModelsExist() {
+        // TRUE STREAMING (Gemini Live) needs no on-device Whisper files:
+        // skip the check so cloud-only users are never gated on downloads.
+        if (runner is StreamRunner && runner !is org.futo.voiceinput.shared.gemini.WhisperRunner) {
+            return
+        }
         val modelsThatDoNotExist = mutableListOf<ModelLoader>()
 
         if (!settings.modelRunConfiguration.primaryModel.exists(context)) {
@@ -215,6 +232,9 @@ class AudioRecognizer(
         verifyModelsExist()
     }
 
+    private fun isStreamingRunner(): Boolean =
+        runner is StreamRunner && runner !is org.futo.voiceinput.shared.gemini.WhisperRunner
+
     fun reset() {
         recorder?.stop()
         recorderJob?.cancel()
@@ -225,11 +245,25 @@ class AudioRecognizer(
         modelJob?.cancel()
         isRecording = false
 
+        closeStreamSession()
         runner.cancelAll()
 
         unfocusAudio()
 
         clearCommunicationDevice()
+    }
+
+    private fun closeStreamSession() {
+        val s = synchronized(streamLock) {
+            val cur = streamSession
+            streamSession = null
+            cur
+        }
+        if (s != null) {
+            try { s.close() } catch (_: Exception) {}
+        }
+        streamFailed.set(false)
+        streamDone.set(false)
     }
 
     fun finish() {
@@ -293,7 +327,72 @@ class AudioRecognizer(
     }
 
     private suspend fun preloadModels() {
+        // Streaming path opens its socket at mic-tap instead; no model to load.
+        if (isStreamingRunner()) return
         runner.preload(settings.modelRunConfiguration)
+    }
+
+    /**
+     * Opens the TRUE STREAMING session at mic-tap. connect() runs in the
+     * background inside the session; early PCM is buffered until setupComplete.
+     * Callbacks: finals accumulate silently (never displayed), errors cancel
+     * the window once on the Main thread.
+     */
+    private fun openStreamSession() {
+        if (!isStreamingRunner()) return
+        closeStreamSession()
+        val streamRunner = runner as StreamRunner
+        val session = try {
+            streamRunner.startStream(
+                // Final-only commit: finals arrive via awaitFinal snapshot.
+                // Deltas are intentionally not displayed (no interim UI).
+                onFinalChunk = { },
+                onSessionError = { message ->
+                    onStreamError(message)
+                },
+            )
+        } catch (e: Exception) {
+            onStreamError(e.message ?: "Network error — check connection")
+            return
+        }
+        synchronized(streamLock) { streamSession = session }
+        try {
+            session.openAsync()
+        } catch (e: Exception) {
+            onStreamError(e.message ?: "Network error — check connection")
+        }
+        // Surface recording UI immediately; decoding status follows.
+        listener.decodingStatus(InferenceState.DecodingStarted)
+    }
+
+    private fun onStreamError(message: String) {
+        // Fire once: first failure cancels the window; late echoes are dropped.
+        if (!streamFailed.compareAndSet(false, true)) return
+        val safe = message.ifBlank { "Network error — check connection" }
+        try {
+            val s = synchronized(streamLock) { streamSession }
+            try { s?.close() } catch (_: Exception) {}
+        } catch (_: Exception) {}
+        // Socket threads must never touch views: hop to Main.
+        try {
+            lifecycleScope.launch(Dispatchers.Main) {
+                // Only cancel if Stop hasn't already committed a result.
+                if (!streamDone.get()) {
+                    reset()
+                    listener.cancelled()
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun streamPcmChunk(samples: ShortArray, length: Int) {
+        val s = synchronized(streamLock) { streamSession } ?: return
+        if (length <= 0) return
+        try {
+            s.sendPcm(LiveProtocol.shortSamplesToPcm16(samples, length))
+        } catch (_: Exception) {
+            // sendPcm itself fails via onSessionError; never throw into recorder.
+        }
     }
 
     private fun expandSpaceIfAllowed(): Boolean {
@@ -375,6 +474,11 @@ class AudioRecognizer(
             }
 
             floatSamples.put(samples.sliceArray(0 until nRead).map { it.toFloat() / Short.MAX_VALUE.toFloat() }.toFloatArray())
+            // TRUE STREAMING: feed the same 100 ms window to the Live session.
+            // Pre-setup audio is buffered server-side in arrival order.
+            if (isStreamingRunner()) {
+                streamPcmChunk(samples, nRead)
+            }
 
             // Don't set hasTalked if the start sound may still be playing, otherwise on some
             // devices the rms just explodes and `hasTalked` is always true
@@ -432,6 +536,9 @@ class AudioRecognizer(
                         break
                     }
                     floatSamples.put(samples.sliceArray(0 until nRead2).map { it.toFloat() / Short.MAX_VALUE.toFloat() }.toFloatArray())
+                    if (isStreamingRunner()) {
+                        streamPcmChunk(samples, nRead2)
+                    }
                 } else {
                     break
                 }
@@ -511,6 +618,8 @@ class AudioRecognizer(
 
         listener.recordingStarted(device)
 
+        openStreamSession()
+
         loadModelJob = lifecycleScope.launch {
             withContext(Dispatchers.Default) {
                 try {
@@ -541,6 +650,12 @@ class AudioRecognizer(
     }
 
     private suspend fun runModel() {
+        // TRUE STREAMING finalize: Stop already sent end-markers; await the
+        // server's FINAL commit (12 s), then finish or cancel on Main.
+        if (isStreamingRunner()) {
+            runStreamingFinalize()
+            return
+        }
         loadModelJob?.let {
             if (it.isActive) {
                 println("Model was not finished loading...")
@@ -586,6 +701,74 @@ class AudioRecognizer(
         }
     }
 
+    /**
+     * Stop path for TRUE STREAMING: the session already received
+     * activityEnd + audioStreamEnd in [onFinishRecording]. Await the FINAL
+     * commit on Default (never Main), then deliver exactly one terminal:
+     * commit text via finished(), empty as cancelled() like Whisper blanks,
+     * errors as cancelled() — never a crash. Interim was never displayed.
+     */
+    private suspend fun runStreamingFinalize() {
+        val session = synchronized(streamLock) { streamSession }
+        if (session == null) {
+            // Socket never opened (e.g. blank key failed fast in openAsync):
+            // mirror the error path without crashing.
+            yield()
+            withContext(Dispatchers.Main) {
+                val alreadyFailed = streamFailed.get()
+                reset()
+                // onStreamError already cancelled once; don't double-fire.
+                if (!alreadyFailed) listener.cancelled()
+            }
+            return
+        }
+        yield()
+        val text: String? = try {
+            session.awaitFinal(LiveStreamingSession.AWAIT_FINAL_TIMEOUT_MS)
+        } catch (e: InferenceCancelledException) {
+            yield()
+            return
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // reset()/cancel() during Stop: silent teardown, no callback.
+            yield()
+            return
+        } catch (e: TranscribeException) {
+            yield()
+            withContext(Dispatchers.Main) {
+                // Mark done first so a racing onStreamError doesn't double-cancel.
+                streamDone.set(true)
+                reset()
+                listener.cancelled()
+            }
+            return
+        }
+        val commit = text?.trim().orEmpty()
+        // Silence/timeout with no finals (short tap): Whisper parity is
+        // finished("") upstream, but blank commits confuse the IME commit
+        // path — surface as cancelled() so the window closes cleanly.
+        if (commit.isEmpty() || isBlankResult(commit)) {
+            yield()
+            withContext(Dispatchers.Main) {
+                streamDone.set(true)
+                reset()
+                listener.cancelled()
+            }
+            return
+        }
+        yield()
+        streamDone.set(true)
+        val snapshot = commit
+        lifecycleScope.launch {
+            withContext(Dispatchers.Main) {
+                yield()
+                val s = synchronized(streamLock) { streamSession }
+                try { s?.close() } catch (_: Exception) {}
+                synchronized(streamLock) { streamSession = null }
+                listener.finished(snapshot)
+            }
+        }
+    }
+
     private fun onFinishRecording() {
         recorderJob?.cancel()
 
@@ -595,6 +778,14 @@ class AudioRecognizer(
 
         isRecording = false
         recorder?.stop()
+
+        // TRUE STREAMING: Stop sends turn-end markers now; runModel awaits finals.
+        // Pre-setup Stop defers markers to the setupComplete flush in order.
+        if (isStreamingRunner()) {
+            try {
+                synchronized(streamLock) { streamSession }?.finish()
+            } catch (_: Exception) {}
+        }
 
         listener.processing()
 

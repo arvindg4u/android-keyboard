@@ -61,4 +61,63 @@ class GeminiLiveRunnerTest {
         }
         assertFalse(opened)
     }
+
+    @Test
+    fun `startStream uses construction credentials and injectable factory`() {
+        var sawHost = ""
+        var sawPath = ""
+        var created = 0
+        val fake = object : StreamSocket {
+            override fun connect() {}
+            override fun send(text: String): Boolean = true
+            override fun close(code: Int, reason: String) {}
+        }
+        val factory = StreamSocketFactory { host, path, _, _, _ ->
+            created++
+            sawHost = host
+            sawPath = path
+            fake
+        }
+        val runner = GeminiLiveRunner(
+            apiKey = "  test-key  ",
+            smartMode = true,
+            socketFactory = { _, _, _, _, _ -> throw AssertionError("one-shot factory must not be used") },
+            streamSocketFactory = factory,
+        )
+        var chunk = ""
+        var err = ""
+        val session = runner.startStream(
+            onFinalChunk = { chunk = it },
+            onSessionError = { err = it },
+        )
+        assertNotNull(session)
+        session.openAsync()
+        assertEquals(1, created)
+        assertEquals("generativelanguage.googleapis.com", sawHost)
+        assertTrue(sawPath.contains("key=test-key"))
+        assertEquals("", chunk)
+        assertEquals("", err)
+        session.close()
+        runner.cancelAll()
+    }
+
+    @Test
+    fun `cancelAll closes tracked streams`() {
+        var closes = 0
+        val fake = object : StreamSocket {
+            override fun connect() {}
+            override fun send(text: String): Boolean = true
+            override fun close(code: Int, reason: String) { closes++ }
+        }
+        val factory = StreamSocketFactory { _, _, _, _, _ -> fake }
+        val runner = GeminiLiveRunner(
+            apiKey = "k",
+            smartMode = false,
+            streamSocketFactory = factory,
+        )
+        val s = runner.startStream()
+        s.openAsync()
+        runner.cancelAll()
+        assertTrue(closes >= 1)
+    }
 }

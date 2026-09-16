@@ -23,12 +23,15 @@ interface TranscriptionRunner {
  * Streaming entry point for Live transcription. Implementations open a
  * [LiveStreamingSession] (socket opened at mic-tap, PCM fed live) without
  * touching the one-shot [TranscriptionRunner.transcribe] path used by Whisper.
+ *
+ * Parameterless by design: the runner carries its own credentials (apiKey,
+ * smartMode, baseUrl from construction) and the session callbacks are wired
+ * by the owner ([AudioRecognizer]) at start time via the session constructor.
+ * Callers pass callbacks through [startStream] so a single runner instance
+ * can serve successive utterances with per-utterance listeners.
  */
 interface StreamRunner {
     fun startStream(
-        apiKey: String,
-        smartMode: Boolean,
-        baseUrl: String = LiveProtocol.DEFAULT_BASE_URL,
         onFinalChunk: (String) -> Unit = {},
         onSessionError: (String) -> Unit = {},
     ): LiveStreamingSession

@@ -29,35 +29,38 @@ class GeminiLiveRunner(
         onFailure: (Throwable) -> Unit
     ) -> LiveSocket = { host, path, onText, onClosed, onFailure ->
         LiveSocket(host, path, onText, onClosed, onFailure) { _, _ -> }
-    }
+    },
+    private val streamSocketFactory: StreamSocketFactory? = null,
 ) : TranscriptionRunner, StreamRunner {
 
     @Volatile
     private var inFlight: LiveSocket? = null
 
+    private val activeStreams = java.util.Collections.synchronizedSet(
+        mutableSetOf<LiveStreamingSession>()
+    )
+
     /**
      * Opens a TRUE STREAMING session: socket connects at mic-tap, PCM chunks
      * stream live via [LiveStreamingSession.sendPcm], Stop sends end-markers
      * via [LiveStreamingSession.finish], and only FINAL text commits via
-     * [LiveStreamingSession.awaitFinal]. The one-shot [transcribe] path above
-     * is untouched (kept for the Whisper fallback).
+     * [LiveStreamingSession.awaitFinal]. The one-shot [transcribe] path below
+     * is untouched (kept as fallback). Credentials come from construction;
+     * per-utterance listeners are supplied by the owner at start time.
      */
     override fun startStream(
-        apiKey: String,
-        smartMode: Boolean,
-        baseUrl: String,
         onFinalChunk: (String) -> Unit,
         onSessionError: (String) -> Unit,
-    ): LiveStreamingSession = LiveStreamingSession(
+    ): LiveStreamingSession = trackStream(LiveStreamingSession(
         apiKey = apiKey,
         smartMode = smartMode,
         baseUrl = baseUrl,
         onFinalChunk = onFinalChunk,
         onSessionError = onSessionError,
-        socketFactory = StreamSocketFactory { host, path, onText, onClosed, onFailure ->
+        socketFactory = streamSocketFactory ?: StreamSocketFactory { host, path, onText, onClosed, onFailure ->
             LiveSocketAdapter(LiveSocket(host, path, onText, onClosed, onFailure) { _, _ -> })
         },
-    )
+    ))
 
     override suspend fun transcribe(
         samples: FloatArray,
@@ -84,6 +87,17 @@ class GeminiLiveRunner(
     override fun cancelAll() {
         inFlight?.close(1001, "cancel")
         inFlight = null
+        synchronized(activeStreams) {
+            activeStreams.toList().forEach {
+                try { it.close() } catch (_: Exception) {}
+            }
+            activeStreams.clear()
+        }
+    }
+
+    private fun trackStream(session: LiveStreamingSession): LiveStreamingSession {
+        activeStreams.add(session)
+        return session
     }
 
     private sealed interface LiveOutcome {

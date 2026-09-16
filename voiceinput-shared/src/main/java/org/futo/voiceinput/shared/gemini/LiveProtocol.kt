@@ -184,4 +184,21 @@ object LiveProtocol {
         }
         return out
     }
+
+    /**
+     * Direct Short -> LE PCM16 bytes without the float round-trip. Used by
+     * the TRUE STREAMING recorder path so live chunks match the one-shot
+     * [floatSamplesToPcm16] bytes exactly (float32 x/32767 then LE int16).
+     * [length] bounds the valid prefix of [samples] (recorder reuses buffer).
+     */
+    fun shortSamplesToPcm16(samples: ShortArray, length: Int): ByteArray {
+        val n = length.coerceIn(0, samples.size)
+        val out = ByteArray(n * 2)
+        for (i in 0 until n) {
+            val v = samples[i].toInt()
+            out[i * 2] = (v and 0xFF).toByte()
+            out[i * 2 + 1] = ((v ushr 8) and 0xFF).toByte()
+        }
+        return out
+    }
 }
