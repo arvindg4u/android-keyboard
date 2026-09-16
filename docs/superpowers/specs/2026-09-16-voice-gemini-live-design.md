@@ -60,7 +60,7 @@ New files in `voiceinput-shared/.../shared/gemini/`, ported from
 | `GeminiLiveRunner.kt` | `LlmClient.liveTranscribe` + `liveAttempt` + `LiveAttemptCallbacks` + `awaitLiveOutcome` + `sendLiveAudio` + `LiveOutcome` (minus `Rotate`) | REST/Interactions **not** ported |
 | `LiveSocket.kt` | verbatim port | raw-TLS RFC 6455 client, unchanged logic |
 | `LiveProtocol.kt` | live-only subset of `GeminiTransports.kt` | setup/activity/audio builders + parsers, `liveHost`, `livePath`, `LIVE_*` consts, `normalizeKeys`, `mapHttpError` |
-| `GeminiSettings.kt` | subset of `SettingsStore` | key + base URL + model + smart mode, own EncryptedSharedPreferences file |
+| `GeminiSettings.kt` | subset of `SettingsStore` | key + base URL + smart mode (model fixed, no picker), own EncryptedSharedPreferences file |
 
 Modified: `AudioRecognizer.kt` (takes `TranscriptionRunner`; float→PCM16
 helper for the Gemini path), `java/AndroidManifest.xml` (INTERNET + comment),
@@ -96,13 +96,16 @@ commit what was heard; timeout with nothing → "Timed out — try again".
   the existing `VoiceInput.kt` settings page. Default = today's behavior, no
   migration.
 - `GeminiSettings.kt`: single key, base URL (default
-  `https://generativelanguage.googleapis.com/v1beta`, fail-closed https),
-  model, smart mode (default VERBATIM). Own EncryptedSharedPreferences file.
+  `https://generativelanguage.googleapis.com/v1beta`, fail-closed https).
+  Model is fixed to `gemini-3.5-transcribe-live` (no model picker — the only
+  supported Live model). Smart mode (default VERBATIM). Own
+  EncryptedSharedPreferences file.
 - Settings UI on the VoiceInput page with an explicit "sends audio to Google
   for transcription" disclosure under the engine toggle.
-- **Open item:** exact default live model string (which `-live` /
-  `live-preview` / `native-audio` model is production). Confirm before
-  implementation.
+- Model decision (closed 2026-09-16): fixed to `gemini-3.5-transcribe-live`,
+  the live model exercised end-to-end in the Voice IME live-setup tests. The
+  routing heuristic still matches `-live` markers, but no other model is
+  exposed or supported.
 
 ## 5. Testing
 
