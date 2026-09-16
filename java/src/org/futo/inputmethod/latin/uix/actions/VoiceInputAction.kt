@@ -173,10 +173,17 @@ private class VoiceInputActionWindow(
     private var modelException: MutableState<ModelDoesNotExistException?> = mutableStateOf(null)
     private var activeEngine: MutableState<String> = mutableStateOf("offline")
 
+    private fun hasInternetPermission(): Boolean {
+        return context.checkSelfPermission(android.Manifest.permission.INTERNET) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
     private fun selectRunner(): TranscriptionRunner {
         val engine = context.getSetting(VOICE_ENGINE)
         val gemini = GeminiSettings(context)
-        return if (engine == "gemini" && gemini.hasKey()) {
+        // Stable/playstore manifests strip INTERNET (offline-pure builds):
+        // fall back to Whisper there even if Gemini is selected.
+        return if (engine == "gemini" && gemini.hasKey() && hasInternetPermission()) {
             activeEngine.value = "gemini"
             GeminiLiveRunner(apiKey = gemini.apiKey, smartMode = gemini.smartMode)
         } else {

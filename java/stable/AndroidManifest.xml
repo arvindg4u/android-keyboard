@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Stable stays offline-pure: strip the opt-in Gemini INTERNET permission
+         so the buildStable CI gate passes. Gemini engine falls back to Whisper here. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
 
     <application>
         <service
