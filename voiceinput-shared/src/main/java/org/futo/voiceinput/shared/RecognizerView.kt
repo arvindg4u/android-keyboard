@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.LifecycleCoroutineScope
+import org.futo.voiceinput.shared.gemini.TranscriptionRunner
 import org.futo.voiceinput.shared.types.AudioRecognizerListener
 import org.futo.voiceinput.shared.types.InferenceState
 import org.futo.voiceinput.shared.types.Language
@@ -79,7 +80,8 @@ class RecognizerView(
     private val listener: RecognizerViewListener,
     private val settings: RecognizerViewSettings,
     lifecycleScope: LifecycleCoroutineScope,
-    modelManager: ModelManager
+    modelManager: ModelManager,
+    runner: TranscriptionRunner
 ) {
     private val magnitudeState = mutableFloatStateOf(0.0f)
     private val statusState = mutableStateOf(MagnitudeState.NOT_TALKED_YET)
@@ -241,6 +243,7 @@ class RecognizerView(
         context = context,
         lifecycleScope = lifecycleScope,
         modelManager = modelManager,
+        runner = runner,
         listener = audioRecognizerListener,
         settings = AudioRecognizerSettings(
             modelRunConfiguration = settings.modelRunConfiguration,

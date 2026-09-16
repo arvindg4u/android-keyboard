@@ -37,11 +37,11 @@ import org.futo.voiceinput.shared.types.Language
 import org.futo.voiceinput.shared.types.MagnitudeState
 import org.futo.voiceinput.shared.types.ModelInferenceCallback
 import org.futo.voiceinput.shared.types.ModelLoader
+import org.futo.voiceinput.shared.gemini.TranscriptionRunner
 import org.futo.voiceinput.shared.ui.MicrophoneDeviceState
 import org.futo.voiceinput.shared.whisper.DecodingConfiguration
 import org.futo.voiceinput.shared.whisper.ModelManager
 import org.futo.voiceinput.shared.whisper.MultiModelRunConfiguration
-import org.futo.voiceinput.shared.whisper.MultiModelRunner
 import org.futo.voiceinput.shared.whisper.isBlankResult
 import java.nio.FloatBuffer
 import java.nio.ShortBuffer
@@ -96,13 +96,12 @@ class AudioRecognizer(
     private val context: Context,
     private val lifecycleScope: LifecycleCoroutineScope,
     modelManager: ModelManager,
+    private val runner: TranscriptionRunner,
     private val listener: AudioRecognizerListener,
     private val settings: AudioRecognizerSettings
 ) {
     private var isRecording = false
     private var recorder: AudioRecord? = null
-
-    private val modelRunner = MultiModelRunner(modelManager)
 
     private val canExpandSpace = settings.recordingConfiguration.canExpandSpace
     private val useVAD = settings.recordingConfiguration.useVADAutoStop
@@ -225,7 +224,7 @@ class AudioRecognizer(
         modelJob?.cancel()
         isRecording = false
 
-        modelRunner.cancelAll()
+        runner.cancelAll()
 
         unfocusAudio()
 
@@ -293,7 +292,7 @@ class AudioRecognizer(
     }
 
     private suspend fun preloadModels() {
-        modelRunner.preload(settings.modelRunConfiguration)
+        runner.preload(settings.modelRunConfiguration)
     }
 
     private fun expandSpaceIfAllowed(): Boolean {
@@ -552,7 +551,7 @@ class AudioRecognizer(
 
         yield()
         val outputText = try {
-             modelRunner.run(
+             runner.transcribe(
                 floatArray,
                 settings.modelRunConfiguration,
                 settings.decodingConfiguration,

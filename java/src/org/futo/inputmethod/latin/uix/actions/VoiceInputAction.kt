@@ -56,6 +56,7 @@ import org.futo.voiceinput.shared.types.Language
 import org.futo.voiceinput.shared.types.ModelLoader
 import org.futo.voiceinput.shared.types.getLanguageFromWhisperString
 import org.futo.voiceinput.shared.ui.MicrophoneDeviceState
+import org.futo.voiceinput.shared.gemini.WhisperRunner
 import org.futo.voiceinput.shared.whisper.DecodingConfiguration
 import org.futo.voiceinput.shared.whisper.ModelManager
 import org.futo.voiceinput.shared.whisper.MultiModelRunConfiguration
@@ -177,7 +178,8 @@ private class VoiceInputActionWindow(
                 listener = this@VoiceInputActionWindow,
                 settings = settings,
                 lifecycleScope = manager.getLifecycleScope(),
-                modelManager = state.modelManager
+                modelManager = state.modelManager,
+                runner = WhisperRunner(state.modelManager)
             )
         } catch(e: ModelDoesNotExistException) {
             modelException.value = e
