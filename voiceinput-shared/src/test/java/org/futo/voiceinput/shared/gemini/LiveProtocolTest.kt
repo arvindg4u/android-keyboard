@@ -97,8 +97,9 @@ class LiveProtocolTest {
 
     @Test
     fun `short to pcm16 matches float path bytes`() {
-        // 0, max, min, arbitrary: LE bytes must equal float-converted output.
-        val shorts = shortArrayOf(0, 32767, -32768, 1000, -1000)
+        // 0, max, min-symmetric (-32767, since -32768 clips on the float path),
+        // arbitrary: LE bytes must equal float-converted output.
+        val shorts = shortArrayOf(0, 32767, -32767, 1000, -1000)
         val floats = floatArrayOf(0f, 1f, -1f, 1000f / 32767f, -1000f / 32767f)
         assertArrayEquals(
             LiveProtocol.floatSamplesToPcm16(floats),
