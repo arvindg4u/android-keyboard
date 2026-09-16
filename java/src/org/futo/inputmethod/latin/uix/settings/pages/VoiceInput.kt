@@ -8,6 +8,16 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.getSystemService
 import org.futo.inputmethod.latin.R
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import org.futo.inputmethod.latin.uix.ANIMATE_BUBBLE
 import org.futo.inputmethod.latin.uix.AUDIO_FOCUS
 import org.futo.inputmethod.latin.uix.CAN_EXPAND_SPACE
@@ -18,15 +28,19 @@ import org.futo.inputmethod.latin.uix.SYSTEM_VOICE_INPUT_PACKAGE
 import org.futo.inputmethod.latin.uix.USE_PERSONAL_DICT
 import org.futo.inputmethod.latin.uix.USE_SYSTEM_VOICE_INPUT
 import org.futo.inputmethod.latin.uix.USE_VAD_AUTOSTOP
+import org.futo.inputmethod.latin.uix.VOICE_ENGINE
 import org.futo.inputmethod.latin.uix.settings.DropDownPickerSettingItem
 import org.futo.inputmethod.latin.uix.settings.NavigationItemStyle
+import org.futo.inputmethod.latin.uix.settings.SettingItem
 import org.futo.inputmethod.latin.uix.settings.Tip
 import org.futo.inputmethod.latin.uix.settings.UserSetting
 import org.futo.inputmethod.latin.uix.settings.UserSettingsMenu
 import org.futo.inputmethod.latin.uix.settings.useDataStore
 import org.futo.inputmethod.latin.uix.settings.useDataStoreValue
+import org.futo.inputmethod.latin.uix.settings.userSettingDecorationOnly
 import org.futo.inputmethod.latin.uix.settings.userSettingNavigationItem
 import org.futo.inputmethod.latin.uix.settings.userSettingToggleDataStore
+import org.futo.voiceinput.shared.gemini.GeminiSettings
 
 private val visibilityCheckNotSystemVoiceInput = @Composable {
     useDataStoreValue(USE_SYSTEM_VOICE_INPUT) == false
@@ -178,6 +192,67 @@ val VoiceInputMenu = UserSettingsMenu(
             style = NavigationItemStyle.Misc,
             navigateTo = "languages"
         ).copy(visibilityCheck = visibilityCheckNotSystemVoiceInput),
+
+        UserSetting(
+            name = R.string.voice_input_settings_engine,
+        ) {
+            val engine = useDataStore(VOICE_ENGINE)
+            val context = LocalContext.current
+            val res = LocalResources.current
+            val options = listOf("offline", "gemini")
+
+            DropDownPickerSettingItem(
+                stringResource(R.string.voice_input_settings_engine),
+                options,
+                engine.value,
+                { engine.setValue(it) },
+                {
+                    when (it) {
+                        "gemini" -> res.getString(R.string.voice_input_settings_engine_gemini)
+                        else -> res.getString(R.string.voice_input_settings_engine_offline)
+                    }
+                }
+            )
+
+            if (engine.value == "gemini") {
+                Tip(stringResource(R.string.voice_input_settings_gemini_disclosure))
+
+                val geminiSettings = remember { GeminiSettings(context) }
+                var keyText by remember { mutableStateOf(geminiSettings.apiKey) }
+                var smart by remember { mutableStateOf(geminiSettings.smartMode) }
+
+                SettingItem(
+                    title = stringResource(R.string.voice_input_settings_gemini_key),
+                    subtitle = stringResource(R.string.voice_input_settings_gemini_key_subtitle),
+                    content = {}
+                )
+                OutlinedTextField(
+                    value = keyText,
+                    onValueChange = {
+                        keyText = it
+                        geminiSettings.apiKey = it
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    singleLine = true
+                )
+
+                SettingItem(
+                    title = stringResource(R.string.voice_input_settings_gemini_smart),
+                    subtitle = stringResource(R.string.voice_input_settings_gemini_smart_subtitle),
+                    content = {
+                        Switch(
+                            checked = smart,
+                            onCheckedChange = {
+                                smart = it
+                                geminiSettings.smartMode = it
+                            }
+                        )
+                    }
+                )
+            }
+        }.copy(visibilityCheck = visibilityCheckNotSystemVoiceInput),
         //}
     )
 )

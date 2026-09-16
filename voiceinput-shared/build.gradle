@@ -107,6 +107,10 @@ android {
         viewBinding true
         mlModelBinding true
     }
+    testOptions {
+        unitTests.returnDefaultValues = true
+        unitTests.includeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -130,4 +134,11 @@ dependencies {
     implementation(name:'vad-release', ext:'aar')
 
     implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1'
+
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20231013'
+    testImplementation 'org.robolectric:robolectric:4.12.1'
+    testImplementation 'androidx.test:core:1.6.1'
 }

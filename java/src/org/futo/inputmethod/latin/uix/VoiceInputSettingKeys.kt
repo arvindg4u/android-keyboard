@@ -2,6 +2,7 @@ package org.futo.inputmethod.latin.uix
 
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 
 val ENABLE_SOUND = SettingsKey(
@@ -72,4 +73,12 @@ val USE_PERSONAL_DICT = SettingsKey(
 val ANIMATE_BUBBLE = SettingsKey(
     key = booleanPreferencesKey("animate_bubble"),
     default = true
+)
+
+// Voice transcription engine: "offline" (on-device Whisper, default) or
+// "gemini" (cloud Gemini Live, requires API key). Smart mode lives in
+// GeminiSettings (encrypted store), not DataStore.
+val VOICE_ENGINE = SettingsKey(
+    key = stringPreferencesKey("voice_engine"),
+    default = "offline"
 )
