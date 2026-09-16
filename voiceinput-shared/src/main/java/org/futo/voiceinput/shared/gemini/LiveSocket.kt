@@ -7,8 +7,11 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.Socket
+import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.LinkedBlockingQueue
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
 /**
@@ -42,15 +45,36 @@ class LiveSocket(
     private var writerThread: Thread? = null
     private var readerThread: Thread? = null
 
-    /** Opens the raw TLS socket and remembers it for teardown. */
+    /** Opens the raw TLS socket, verifies the server identity, and remembers it for teardown. */
     @Throws(LiveSocketException::class)
     private fun openTlsSocket(): Socket {
         val sock = try {
             SSLSocketFactory.getDefault().createSocket(host, 443).apply {
-                soTimeout = 0
                 tcpNoDelay = true
             }
         } catch (e: Exception) {
+            throw LiveSocketException("Network error — check connection", e)
+        }
+        try {
+            // Finite timeout for the handshake only; restored to blocking
+            // after setup completes. A raw SSLSocket does not verify the
+            // hostname by default, so verify explicitly before sending
+            // anything — the API key travels in the handshake path.
+            sock.soTimeout = HANDSHAKE_TIMEOUT_MS.toInt()
+            val ssl = sock as? SSLSocket
+                ?: throw LiveSocketException("Network error — check connection")
+            ssl.sslParameters = ssl.sslParameters.apply {
+                endpointIdentificationAlgorithm = "HTTPS"
+            }
+            ssl.startHandshake()
+            if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(host, ssl.session)) {
+                throw LiveSocketException("Network error — check connection")
+            }
+        } catch (e: LiveSocketException) {
+            try { sock.close() } catch (_: Exception) {}
+            throw e
+        } catch (e: Exception) {
+            try { sock.close() } catch (_: Exception) {}
             throw LiveSocketException("Network error — check connection", e)
         }
         socket = sock
@@ -78,10 +102,14 @@ class LiveSocket(
         }
     }
 
-    /** Reads the handshake reply; throws a user-safe error when not 101. */
+    /**
+     * Reads and validates the handshake reply: exact 101 status, Upgrade to
+     * websocket, and the RFC 6455 Sec-WebSocket-Accept proof that the server
+     * saw our key. Throws a user-safe error otherwise.
+     */
     @Throws(LiveSocketException::class)
-    private fun awaitHandshake(input: InputStream) {
-        val statusLine = try {
+    private fun awaitHandshake(input: InputStream, wsKey: String) {
+        val (statusLine, headers) = try {
             readHttpHeaders(input)
         } catch (e: LiveSocketException) {
             closeSocket()
@@ -91,9 +119,17 @@ class LiveSocket(
             throw LiveSocketException("Network error — check connection", e)
         }
         log("live-wire", "handshake " + statusLine.take(60))
-        if (!statusLine.contains("101")) {
+        val code = Regex("HTTP/\\S+\\s+(\\d{3})").find(statusLine)?.groupValues?.getOrNull(1)
+        val upgrade = headers["upgrade"].orEmpty()
+        val expectedAccept = Base64.encodeToString(
+            MessageDigest.getInstance("SHA-1")
+                .digest((wsKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toByteArray(Charsets.US_ASCII)),
+            Base64.NO_WRAP
+        )
+        val acceptOk = headers["sec-websocket-accept"] == expectedAccept
+        if (code != "101" || !upgrade.contains("websocket", ignoreCase = true) || !acceptOk) {
             closeSocket()
-            throw LiveSocketException(mapHandshakeError(statusLine))
+            throw LiveSocketException(mapHandshakeError("$statusLine acceptOk=$acceptOk"))
         }
         log("live-wire", "handshake ok")
     }
@@ -118,7 +154,12 @@ class LiveSocket(
         }
         out = output
         sendHandshake(output, wsKey)
-        awaitHandshake(input)
+        try {
+            awaitHandshake(input, wsKey)
+        } finally {
+            // Handshake done: restore blocking reads for the frame loop.
+            try { sock.soTimeout = 0 } catch (_: Exception) {}
+        }
         writerThread = Thread({ writeLoop() }, "VoiceImeLiveWriter").apply {
             isDaemon = true
             start()
@@ -292,12 +333,14 @@ class LiveSocket(
     }
 
     /**
-     * Reads the HTTP status line, consuming all headers. Returns the status
-     * line (e.g. "HTTP/1.1 101 Switching Protocols"). Throws
-     * [LiveSocketException] with a user-safe message on rejection.
+     * Reads the HTTP status line and all headers. Returns the status line
+     * (e.g. "HTTP/1.1 101 Switching Protocols") plus a lowercase header map.
+     * Throws [LiveSocketException] with a user-safe message on rejection.
+     * The socket read timeout bounds the handshake; callers restore blocking
+     * mode afterwards.
      */
     @Throws(LiveSocketException::class)
-    private fun readHttpHeaders(input: InputStream): String {
+    private fun readHttpHeaders(input: InputStream): Pair<String, Map<String, String>> {
         val raw = ByteArrayOutputStream()
         val window = ByteArray(4)
         var filled = 0
@@ -328,11 +371,20 @@ class LiveSocket(
             }
         }
         val head = raw.toString(Charsets.US_ASCII.name())
-        val statusLine = head.lineSequence().firstOrNull().orEmpty()
+        val lines = head.lineSequence().toList()
+        val statusLine = lines.firstOrNull().orEmpty()
+        val headers = mutableMapOf<String, String>()
+        for (line in lines.drop(1)) {
+            val idx = line.indexOf(':')
+            if (idx > 0) {
+                headers[line.substring(0, idx).trim().lowercase()] =
+                    line.substring(idx + 1).trim()
+            }
+        }
         if (!statusLine.contains("101")) {
             throw LiveSocketException(mapHandshakeError(statusLine + " " + head.take(300)))
         }
-        return statusLine
+        return statusLine to headers
     }
 
     private data class WsMessage(val opcode: Int, val payload: ByteArray, val closeCode: Int = 1000, val closeReason: String = "")

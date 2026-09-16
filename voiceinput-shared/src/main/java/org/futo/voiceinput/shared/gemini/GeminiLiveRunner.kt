@@ -150,14 +150,11 @@ class GeminiLiveRunner(
         deferred: CompletableDeferred<LiveOutcome>,
         callback: ModelInferenceCallback
     ) {
+        // Final-only mode (user decision): interim hypotheses are ignored;
+        // only authoritative input_transcription finals accumulate.
         val fragments = LiveProtocol.parseLiveInputTranscripts(text)
-        if (fragments.isNotEmpty()) {
-            if (LiveProtocol.hasLiveFinalTranscript(text)) {
-                for (fragment in fragments) transcript.append(fragment)
-            } else {
-                transcript.setLength(0)
-                for (fragment in fragments) transcript.append(fragment)
-            }
+        if (fragments.isNotEmpty() && LiveProtocol.hasLiveFinalTranscript(text)) {
+            for (fragment in fragments) transcript.append(fragment)
             lastTranscriptMs.set(System.currentTimeMillis())
             try {
                 callback.partialResult(transcript.toString())
