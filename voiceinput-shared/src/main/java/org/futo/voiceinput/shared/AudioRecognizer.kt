@@ -37,6 +37,7 @@ import org.futo.voiceinput.shared.types.Language
 import org.futo.voiceinput.shared.types.MagnitudeState
 import org.futo.voiceinput.shared.types.ModelInferenceCallback
 import org.futo.voiceinput.shared.types.ModelLoader
+import org.futo.voiceinput.shared.gemini.TranscribeException
 import org.futo.voiceinput.shared.gemini.TranscriptionRunner
 import org.futo.voiceinput.shared.ui.MicrophoneDeviceState
 import org.futo.voiceinput.shared.whisper.DecodingConfiguration
@@ -559,6 +560,15 @@ class AudioRecognizer(
             ).trim()
         }catch(e: InferenceCancelledException) {
             yield()
+            return
+        }catch(e: TranscribeException) {
+            // P0: Gemini failures (empty transcript, network, timeout, bad key)
+            // must cancel the window, never crash modelJob.
+            yield()
+            withContext(Dispatchers.Main) {
+                reset()
+                listener.cancelled()
+            }
             return
         }
 

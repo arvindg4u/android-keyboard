@@ -168,11 +168,10 @@ class GeminiLiveRunner(
         deferred: CompletableDeferred<LiveOutcome>,
         transcript: StringBuilder
     ) {
-        val text = transcript.toString().trim()
-        deferred.complete(
-            if (text.isEmpty()) LiveOutcome.Fail("empty")
-            else LiveOutcome.Done(text)
-        )
+        // P1: empty transcript (short tap, silence) completes as empty text
+        // like Whisper's blank path, instead of Fail("empty") which crashed
+        // modelJob via uncaught TranscribeException.
+        deferred.complete(LiveOutcome.Done(transcript.toString().trim()))
     }
 
     private fun mapFailure(t: Throwable): LiveOutcome {
