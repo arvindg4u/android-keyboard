@@ -18,3 +18,18 @@ interface TranscriptionRunner {
     suspend fun preload(runConfig: MultiModelRunConfiguration) {}
     fun cancelAll()
 }
+
+/**
+ * Streaming entry point for Live transcription. Implementations open a
+ * [LiveStreamingSession] (socket opened at mic-tap, PCM fed live) without
+ * touching the one-shot [TranscriptionRunner.transcribe] path used by Whisper.
+ */
+interface StreamRunner {
+    fun startStream(
+        apiKey: String,
+        smartMode: Boolean,
+        baseUrl: String = LiveProtocol.DEFAULT_BASE_URL,
+        onFinalChunk: (String) -> Unit = {},
+        onSessionError: (String) -> Unit = {},
+    ): LiveStreamingSession
+}

@@ -30,10 +30,34 @@ class GeminiLiveRunner(
     ) -> LiveSocket = { host, path, onText, onClosed, onFailure ->
         LiveSocket(host, path, onText, onClosed, onFailure) { _, _ -> }
     }
-) : TranscriptionRunner {
+) : TranscriptionRunner, StreamRunner {
 
     @Volatile
     private var inFlight: LiveSocket? = null
+
+    /**
+     * Opens a TRUE STREAMING session: socket connects at mic-tap, PCM chunks
+     * stream live via [LiveStreamingSession.sendPcm], Stop sends end-markers
+     * via [LiveStreamingSession.finish], and only FINAL text commits via
+     * [LiveStreamingSession.awaitFinal]. The one-shot [transcribe] path above
+     * is untouched (kept for the Whisper fallback).
+     */
+    override fun startStream(
+        apiKey: String,
+        smartMode: Boolean,
+        baseUrl: String,
+        onFinalChunk: (String) -> Unit,
+        onSessionError: (String) -> Unit,
+    ): LiveStreamingSession = LiveStreamingSession(
+        apiKey = apiKey,
+        smartMode = smartMode,
+        baseUrl = baseUrl,
+        onFinalChunk = onFinalChunk,
+        onSessionError = onSessionError,
+        socketFactory = StreamSocketFactory { host, path, onText, onClosed, onFailure ->
+            LiveSocketAdapter(LiveSocket(host, path, onText, onClosed, onFailure) { _, _ -> })
+        },
+    )
 
     override suspend fun transcribe(
         samples: FloatArray,
