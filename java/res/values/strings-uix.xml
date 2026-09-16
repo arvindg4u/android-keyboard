@@ -601,6 +601,15 @@
     <string name="voice_input_settings_animate_bubble_subtitle">Display a bubble that reacts to speech</string>
     <string name="voice_input_settings_change_models">Models</string>
     <string name="voice_input_settings_change_models_subtitle">To change the models, visit Languages &amp; Models menu</string>
+    <string name="voice_input_settings_engine">Voice engine</string>
+    <string name="voice_input_settings_engine_subtitle">Offline transcribes on-device. Gemini sends audio to Google.</string>
+    <string name="voice_input_settings_engine_offline">Offline (built-in)</string>
+    <string name="voice_input_settings_engine_gemini">Gemini Live</string>
+    <string name="voice_input_settings_gemini_key">Gemini API key</string>
+    <string name="voice_input_settings_gemini_key_subtitle">Single key, stored encrypted on this device</string>
+    <string name="voice_input_settings_gemini_smart">Smart transcription</string>
+    <string name="voice_input_settings_gemini_smart_subtitle">Cleaned-up output. Off gives verbatim transcripts.</string>
+    <string name="voice_input_settings_gemini_disclosure">When Gemini is selected, microphone audio is sent to Google for transcription. Offline mode never leaves the device.</string>
 
     <!-- Prediction menu -->
     <string name="prediction_settings_title">Text Prediction</string>

@@ -39,6 +39,8 @@ import org.futo.inputmethod.latin.uix.PersistentActionState
 import org.futo.inputmethod.latin.uix.ResourceHelper
 import org.futo.inputmethod.latin.uix.USE_PERSONAL_DICT
 import org.futo.inputmethod.latin.uix.USE_VAD_AUTOSTOP
+import org.futo.inputmethod.latin.uix.VOICE_ENGINE
+import org.futo.inputmethod.latin.uix.getSetting
 import org.futo.inputmethod.latin.uix.VERBOSE_PROGRESS
 import org.futo.inputmethod.latin.uix.getSetting
 import org.futo.inputmethod.latin.uix.setSetting
@@ -56,6 +58,9 @@ import org.futo.voiceinput.shared.types.Language
 import org.futo.voiceinput.shared.types.ModelLoader
 import org.futo.voiceinput.shared.types.getLanguageFromWhisperString
 import org.futo.voiceinput.shared.ui.MicrophoneDeviceState
+import org.futo.voiceinput.shared.gemini.GeminiLiveRunner
+import org.futo.voiceinput.shared.gemini.GeminiSettings
+import org.futo.voiceinput.shared.gemini.TranscriptionRunner
 import org.futo.voiceinput.shared.gemini.WhisperRunner
 import org.futo.voiceinput.shared.whisper.DecodingConfiguration
 import org.futo.voiceinput.shared.whisper.ModelManager
@@ -166,12 +171,26 @@ private class VoiceInputActionWindow(
 
     private var recognizerView: MutableState<RecognizerView?> = mutableStateOf(null)
     private var modelException: MutableState<ModelDoesNotExistException?> = mutableStateOf(null)
+    private var activeEngine: MutableState<String> = mutableStateOf("offline")
+
+    private fun selectRunner(): TranscriptionRunner {
+        val engine = context.getSetting(VOICE_ENGINE)
+        val gemini = GeminiSettings(context)
+        return if (engine == "gemini" && gemini.hasKey()) {
+            activeEngine.value = "gemini"
+            GeminiLiveRunner(apiKey = gemini.apiKey, smartMode = gemini.smartMode)
+        } else {
+            activeEngine.value = "offline"
+            WhisperRunner(state.modelManager)
+        }
+    }
 
     private val initJob = manager.getLifecycleScope().launch(Dispatchers.Default) {
         yield()
         val settings = loadSettings()
 
         yield()
+        val runner = selectRunner()
         val recognizerView = try {
             RecognizerView(
                 context = manager.getContext(),
@@ -179,7 +198,7 @@ private class VoiceInputActionWindow(
                 settings = settings,
                 lifecycleScope = manager.getLifecycleScope(),
                 modelManager = state.modelManager,
-                runner = WhisperRunner(state.modelManager)
+                runner = runner
             )
         } catch(e: ModelDoesNotExistException) {
             modelException.value = e
@@ -204,7 +223,12 @@ private class VoiceInputActionWindow(
 
     @Composable
     override fun windowName(): String {
-        return stringResource(R.string.action_voice_input_title)
+        val base = stringResource(R.string.action_voice_input_title)
+        return if (activeEngine.value == "gemini") {
+            "$base — ${stringResource(R.string.voice_input_settings_engine_gemini)}"
+        } else {
+            base
+        }
     }
 
     @Composable
