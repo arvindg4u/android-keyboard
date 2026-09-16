@@ -27,7 +27,7 @@ import javax.net.ssl.SSLSocketFactory
  * ([onClosed]/[onFailure]) fire at most once. The API key travels only in
  * the handshake request line and is never logged.
  */
-internal class LiveSocket(
+class LiveSocket(
     private val host: String,
     private val path: String,
     private val onText: (String) -> Unit,
@@ -515,4 +515,4 @@ internal class LiveSocket(
 }
 
 /** User-safe Live socket failure; message is safe to show. */
-internal class LiveSocketException(message: String, cause: Throwable? = null) : IOException(message, cause)
+class LiveSocketException(message: String, cause: Throwable? = null) : IOException(message, cause)
