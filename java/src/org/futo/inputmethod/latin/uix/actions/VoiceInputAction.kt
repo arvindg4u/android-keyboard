@@ -275,12 +275,20 @@ private class VoiceInputActionWindow(
     private var wasFinished = false
     private var cancelPlayed = false
     override fun cancelled() {
+        // Terminal cancel must dismiss the window. Previously this only
+        // cancelled the input transaction, leaving the UI stuck on the
+        // "processing" spinner forever after any failed streaming turn
+        // (blank key, network error, timeout, empty transcript).
         if (!wasFinished) {
+            wasFinished = true
             if (shouldPlaySounds && !cancelPlayed) {
                 state.soundPlayer.playCancelSound()
                 cancelPlayed = true
             }
             inputTransaction.cancel()
+            manager.getLifecycleScope().launch(Dispatchers.Main) {
+                manager.closeActionWindow()
+            }
         }
     }
 

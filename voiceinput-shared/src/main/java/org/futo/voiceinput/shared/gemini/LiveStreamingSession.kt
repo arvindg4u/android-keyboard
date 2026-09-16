@@ -104,7 +104,7 @@ class LiveStreamingSession internal constructor(
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     companion object {
-        const val AWAIT_FINAL_TIMEOUT_MS = 12_000L
+        const val AWAIT_FINAL_TIMEOUT_MS = 8_000L
         const val MAX_PENDING_CHUNKS = 300
     }
 

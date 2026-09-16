@@ -374,13 +374,12 @@ class AudioRecognizer(
             try { s?.close() } catch (_: Exception) {}
         } catch (_: Exception) {}
         // Socket threads must never touch views: hop to Main.
+        // Mark done BEFORE the cancel so a racing Stop cannot double-fire.
+        streamDone.set(true)
         try {
             lifecycleScope.launch(Dispatchers.Main) {
-                // Only cancel if Stop hasn't already committed a result.
-                if (!streamDone.get()) {
-                    reset()
-                    listener.cancelled()
-                }
+                reset()
+                listener.cancelled()
             }
         } catch (_: Exception) {}
     }
@@ -712,13 +711,16 @@ class AudioRecognizer(
         val session = synchronized(streamLock) { streamSession }
         if (session == null) {
             // Socket never opened (e.g. blank key failed fast in openAsync):
-            // mirror the error path without crashing.
+            // mirror the error path without crashing. onStreamError marks
+            // streamDone, so gate on it for exactly one cancel.
             yield()
             withContext(Dispatchers.Main) {
-                val alreadyFailed = streamFailed.get()
-                reset()
-                // onStreamError already cancelled once; don't double-fire.
-                if (!alreadyFailed) listener.cancelled()
+                if (streamDone.compareAndSet(false, true)) {
+                    reset()
+                    listener.cancelled()
+                } else {
+                    reset()
+                }
             }
             return
         }
