@@ -75,9 +75,12 @@ internal class FinalAccumulator {
  * PCM via [sendPcm] as recorder buffers arrive, ended with [finish] on Stop,
  * committed via [awaitFinal].
  *
- * Final-only commit: server interim hypotheses are parsed but discarded —
- * never displayed, never accumulated. Only authoritative
- * input_transcription finals append (overlap-aware) into the commit text.
+ * Final-first commit: authoritative input_transcription finals append
+ * (overlap-aware) into the commit text. Server interim hypotheses are
+ * parsed but never displayed and never fired as chunks — the latest
+ * interim is kept only as a fallback buffer so a turn that never
+ * finalizes (short clips) still commits the words heard instead of
+ * hanging on processing.
  *
  * Ordering / silence-gate rules (single [lock] serializes everything):
  * - Pre-setup PCM is buffered in arrival order (capped at
@@ -122,6 +125,10 @@ class LiveStreamingSession internal constructor(
     private var failed = false
     private var closed = false
     private val finals = FinalAccumulator()
+    // Latest interim hypothesis (replace, never append: each interim repeats
+    // the full text so far). Never displayed; fallback only for awaitFinal
+    // when no final arrives before timeout/turn-close.
+    private var lastInterim: String = ""
     private val outcome = CompletableDeferred<String?>()
 
     /**
@@ -215,11 +222,11 @@ class LiveStreamingSession internal constructor(
 
     /**
      * Suspends until the server finalizes (turnComplete or close-with-text)
-     * or [timeoutMs] elapses. Returns the accumulated FINAL text, or null
-     * when nothing final arrived. Timeout falls back to whatever final text
-     * arrived — never throws for silence. Socket failure / [close] complete
-     * exceptionally so the error surfaces instead of hanging; cancellation
-     * propagates unconverted.
+     * or [timeoutMs] elapses. Returns finals when present, else the latest
+     * interim fallback, or null when nothing arrived at all. Timeout falls
+     * back to whatever text arrived — never throws for silence. Socket
+     * failure / [close] complete exceptionally so the error surfaces
+     * instead of hanging; cancellation propagates unconverted.
      */
     suspend fun awaitFinal(timeoutMs: Long = AWAIT_FINAL_TIMEOUT_MS): String? {
         return try {
@@ -266,9 +273,12 @@ class LiveStreamingSession internal constructor(
                 val fragments = LiveProtocol.parseLiveInputTranscripts(text)
                 if (fragments.isNotEmpty() && LiveProtocol.hasLiveFinalTranscript(text)) {
                     delta = finals.append(fragments.joinToString(""))
+                } else if (fragments.isNotEmpty()) {
+                    // Interim-only: replace fallback buffer (never display,
+                    // never fire onFinalChunk). Keeps short-utterance turns
+                    // committable when the server never sends a final.
+                    lastInterim = fragments.joinToString("")
                 }
-                // Interim fragments are parsed but deliberately discarded:
-                // never displayed, never accumulated for commit.
                 if (LiveProtocol.isLiveTurnComplete(text)) endOfTurn = true
             }
         }
@@ -365,7 +375,9 @@ class LiveStreamingSession internal constructor(
     }
 
     private fun snapshotOrNull(): String? {
-        val text = synchronized(lock) { finals.snapshot().trim() }
+        val text = synchronized(lock) {
+            finals.snapshot().trim().ifEmpty { lastInterim.trim() }
+        }
         return text.ifEmpty { null }
     }
 

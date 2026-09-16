@@ -125,7 +125,7 @@ class LiveStreamingSessionTest {
     }
 
     @Test
-    fun `interim discarded while final accumulates`() {
+    fun `interim never fires chunks while final accumulates`() {
         val h = Harness()
         h.open()
         h.setupAck()
@@ -190,6 +190,33 @@ class LiveStreamingSessionTest {
         val text = runBlocking { h.session.awaitFinal(timeoutMs = 50) }
 
         assertNull(text)
+    }
+
+    @Test
+    fun `interim-only turn commits fallback on timeout`() {
+        val h = Harness()
+        h.open()
+        h.setupAck()
+        h.serverText(interimJson("hel"))
+        h.serverText(interimJson("hello wo"))
+
+        // No chunk fired for interim, but the latest interim commits.
+        assertTrue(h.finalChunks.isEmpty())
+        val text = runBlocking { h.session.awaitFinal(timeoutMs = 50) }
+        assertEquals("hello wo", text)
+    }
+
+    @Test
+    fun `final wins over interim fallback on turn complete`() {
+        val h = Harness()
+        h.open()
+        h.setupAck()
+        h.serverText(interimJson("hel"))
+        h.serverText(finalJson("hello"))
+        h.serverText(TURN_COMPLETE_JSON)
+
+        val text = runBlocking { h.session.awaitFinal() }
+        assertEquals("hello", text)
     }
 
     @Test
