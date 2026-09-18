@@ -184,8 +184,9 @@ private class VoiceInputActionWindow(
     private fun selectRunner(): TranscriptionRunner {
         val engine = context.getSetting(VOICE_ENGINE)
         val gemini = GeminiSettings(context)
-        // Stable/playstore manifests strip INTERNET (offline-pure builds):
+        // Playstore manifest strips INTERNET (offline-pure build):
         // fall back to Whisper there even if Gemini is selected.
+        // Stable keeps INTERNET so opt-in Gemini works; default is offline.
         return if (engine == "gemini" && gemini.hasKey() && hasInternetPermission()) {
             activeEngine.value = "gemini"
             GeminiLiveRunner(apiKey = gemini.apiKey, smartMode = gemini.smartMode)

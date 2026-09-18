@@ -1,11 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Stable stays offline-pure: strip the opt-in Gemini INTERNET permission
-         so the buildStable CI gate passes. Gemini engine falls back to Whisper here. -->
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
-
+    <!-- Stable keeps INTERNET so the opt-in Gemini Live engine works when
+         the user selects it and sets a key. Default stays offline Whisper;
+         no network use unless Gemini is explicitly chosen. -->
     <application>
         <service
             android:name="org.futo.inputmethod.updates.UpdateCheckingService"
